@@ -51,6 +51,21 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                 st.error(f"Authentication error: {e}")
     else:
         st.write(f"Logged in as: **{st.session_state.user.email}**")
+        
+        # Quick Tier Upgrade Simulation for Testing
+        tier_options = ["Free", "Pro", "Premium"]
+        current_tier_index = tier_options.index(user_tier) if user_tier in tier_options else 0
+        selected_upgrade = st.selectbox("Change Tier (Test)", tier_options, index=current_tier_index)
+        
+        if selected_upgrade != user_tier:
+            if st.button("Update Tier"):
+                try:
+                    supabase.table("profiles").update({"tier": selected_upgrade}).eq("id", st.session_state.user.id).execute()
+                    st.success(f"Tier updated to {selected_upgrade}!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to update tier: {e}")
+
         if st.button("Log Out"):
             supabase.auth.sign_out()
             st.session_state.user = None
