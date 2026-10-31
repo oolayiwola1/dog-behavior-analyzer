@@ -30,7 +30,20 @@ st.sidebar.header("Account & Tier")
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# Simple Auth Expander in Sidebar
+# 1. Fetch user tier and usage FIRST so they are available for the sidebar UI
+user_tier = "Free"
+analyses_used = 0
+
+if st.session_state.user:
+    try:
+        profile_res = supabase.table("profiles").select("tier, analyses_used").eq("id", st.session_state.user.id).execute()
+        if profile_res.data:
+            user_tier = profile_res.data[0].get("tier", "Free")
+            analyses_used = profile_res.data[0].get("analyses_used", 0)
+    except Exception:
+        user_tier = "Free"
+
+# 2. Simple Auth Expander in Sidebar
 with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_state.user):
     if st.session_state.user is None:
         auth_mode = st.radio("Mode", ["Log In", "Sign Up"], horizontal=True)
@@ -70,19 +83,6 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
             supabase.auth.sign_out()
             st.session_state.user = None
             st.rerun()
-
-# Determine user tier from database (Defaults to Free if not logged in)
-user_tier = "Free"
-analyses_used = 0
-
-if st.session_state.user:
-    try:
-        profile_res = supabase.table("profiles").select("tier, analyses_used").eq("id", st.session_state.user.id).execute()
-        if profile_res.data:
-            user_tier = profile_res.data[0].get("tier", "Free")
-            analyses_used = profile_res.data[0].get("analyses_used", 0)
-    except Exception:
-        user_tier = "Free"
 
 # Sidebar configuration controls
 st.sidebar.header("Configuration")
