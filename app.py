@@ -127,23 +127,49 @@ if uploaded_file is not None:
                     f"Please upgrade your tier or upload a shorter clip to proceed."
                 )
             else:
-                if st.button("Analyze Behavior", type="primary"):
-                    # Step-by-step streaming status indicator
-                    with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
-                        def update_status_ui(msg):
-                            status_box.write(f"👉 {msg}")
+                # Define monthly analysis count limits
+                analysis_limits = {
+                    "Free": 5,
+                    "Pro": 15,
+                    "Premium": 999999  # Unlimited
+                }
+                max_analyses = analysis_limits.get(user_tier, 5)
+                
+                # Check monthly usage limit if user is logged in
+                limit_reached = False
+                if st.session_state.user and user_tier != "Premium" and analyses_used >= max_analyses:
+                    limit_reached = True
 
-                        try:
-                            report = analyze_dog_behavior(
-                                unique_filename, 
-                                use_mock=use_mock_mode, 
-                                status_callback=update_status_ui
-                            )
-                            status_box.update(label="Analysis Complete!", state="complete", expanded=False)
-                            st.markdown(report)
-                        except Exception as e:
-                            status_box.update(label="Analysis Failed", state="error", expanded=True)
-                            st.error(f"An error occurred during analysis: {e}")
+                if limit_reached:
+                    st.error(
+                        f"🚫 **Monthly Analysis Limit Reached!**\n\n"
+                        f"You have used all **{analyses_used}** of your allowed analyses for the **{user_tier} Tier**. "
+                        f"Upgrade your plan or wait until next month to run more analyses."
+                    )
+                else:
+                    if st.button("Analyze Behavior", type="primary"):
+                        # Step-by-step streaming status indicator
+                        with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
+                            def update_status_ui(msg):
+                                status_box.write(f"👉 {msg}")
+
+                            try:
+                                report = analyze_dog_behavior(
+                                    unique_filename, 
+                                    use_mock=use_mock_mode, 
+                                    status_callback=update_status_ui
+                                )
+                                status_box.update(label="Analysis Complete!", state="complete", expanded=False)
+                                st.markdown(report)
+                                
+                                # Increment usage count in Supabase if user is logged in
+                                if st.session_state.user:
+                                    new_count = analyses_used + 1
+                                    supabase.table("profiles").update({"analyses_used": new_count}).eq("id", st.session_state.user.id).execute()
+                                    
+                            except Exception as e:
+                                status_box.update(label="Analysis Failed", state="error", expanded=True)
+                                st.error(f"An error occurred during analysis: {e}")
 
     finally:
         # Clean up local temporary file after stream renders
