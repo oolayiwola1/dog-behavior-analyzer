@@ -23,7 +23,8 @@ def extract_frames(video_path, frame_rate=1.0, max_frames=15, resize_dim=(640, 3
     frame_interval = int(fps * frame_rate)
     
     # Safeguard: If interval yields more than max_frames, adjust interval step
-    estimated_frames = total_video_frames // max_interval if (max_interval := max(1, frame_interval)) else 1
+    max_interval = max(1, frame_interval)
+    estimated_frames = total_video_frames // max_interval if max_interval else 1
     if estimated_frames > max_frames:
         frame_interval = max(1, total_video_frames // max_frames)
 
@@ -54,6 +55,9 @@ def extract_frames(video_path, frame_rate=1.0, max_frames=15, resize_dim=(640, 3
     return frames_data
 
 def analyze_dog_behavior(video_path, use_mock=False, status_callback=None):
+    """
+    Analyzes dog behavior frames using Gemini Flash or returns mock data.
+    """
     if use_mock:
         if status_callback:
             status_callback("Using Mock Data (Bypassing Gemini API)...")
