@@ -1,4 +1,5 @@
 import os
+import uuid
 import cv2
 import streamlit as st
 
@@ -34,53 +35,64 @@ st.sidebar.info(f"📋 **{user_tier} Tier Rules:** Max video length is **{int(ma
 uploaded_file = st.file_uploader("Choose a video file (.mp4, .mov)", type=["mp4", "mov", "avi"])
 
 if uploaded_file is not None:
-    # Save uploaded file locally to a temp path so OpenCV can read it
-    temp_video_path = "temp_uploaded_video.mp4"
-    with open(temp_video_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    # Generate a unique file path using UUID to prevent multi-user overwrites
+    file_extension = os.path.splitext(uploaded_file.name)[1]
+    if not file_extension:
+        file_extension = ".mp4"
+    unique_filename = f"temp_video_{uuid.uuid4().hex}{file_extension}"
 
-    # Calculate video duration using OpenCV
-    cap = cv2.VideoCapture(temp_video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = frame_count / fps if fps > 0 else 0
-    cap.release()
+    try:
+        # Save uploaded file with unique name
+        with open(unique_filename, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-    col1, col2 = st.columns([1, 1])
+        # Calculate video duration using OpenCV
+        cap = cv2.VideoCapture(unique_filename)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / fps if fps > 0 else 0
+        cap.release()
 
-    with col1:
-        st.subheader("Uploaded Video")
-        st.video(temp_video_path)
-        st.caption(f"⏱️ Detected Length: **{duration:.1f}s** | Limit: **{int(max_duration)}s**")
+        col1, col2 = st.columns([1, 1])
 
-    with col2:
-        st.subheader("Behavioral Analysis Report")
-        
-        # Enforce tier-wise duration limit
-        if duration > max_duration:
-            st.warning(
-                f"⚠️ **Clip exceeds {user_tier} Tier limit!**\n\n"
-                f"This video is **{duration:.1f} seconds long**, but your current **{user_tier} Tier** allows a maximum of **{int(max_duration)} seconds**. "
-                f"Please switch to a higher tier in the sidebar or upload a shorter clip to proceed."
-            )
-        else:
-            if st.button("Analyze Behavior", type="primary"):
-                # Step-by-step streaming status indicator
-                with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
-                    def update_status_ui(msg):
-                        status_box.write(f"👉 {msg}")
+        with col1:
+            st.subheader("Uploaded Video")
+            st.video(unique_filename)
+            st.caption(f"⏱️ Detected Length: **{duration:.1f}s** | Limit: **{int(max_duration)}s**")
 
-                    try:
-                        report = analyze_dog_behavior(
-                            temp_video_path, 
-                            use_mock=use_mock_mode, 
-                            status_callback=update_status_ui
-                        )
-                        status_box.update(label="Analysis Complete!", state="complete", expanded=False)
-                        st.markdown(report)
-                    except Exception as e:
-                        status_box.update(label="Analysis Failed", state="error", expanded=True)
-                        st.error(f"An error occurred during analysis: {e}")
+        with col2:
+            st.subheader("Behavioral Analysis Report")
+            
+            # Enforce tier-wise duration limit
+            if duration > max_duration:
+                st.warning(
+                    f"⚠️ **Clip exceeds {user_tier} Tier limit!**\n\n"
+                    f"This video is **{duration:.1f} seconds long**, but your current **{user_tier} Tier** allows a maximum of **{int(max_duration)} seconds**. "
+                    f"Please switch to a higher tier in the sidebar or upload a shorter clip to proceed."
+                )
+            else:
+                if st.button("Analyze Behavior", type="primary"):
+                    # Step-by-step streaming status indicator
+                    with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
+                        def update_status_ui(msg):
+                            status_box.write(f"👉 {msg}")
+
+                        try:
+                            report = analyze_dog_behavior(
+                                unique_filename, 
+                                use_mock=use_mock_mode, 
+                                status_callback=update_status_ui
+                            )
+                            status_box.update(label="Analysis Complete!", state="complete", expanded=False)
+                            st.markdown(report)
+                        except Exception as e:
+                            status_box.update(label="Analysis Failed", state="error", expanded=True)
+                            st.error(f"An error occurred during analysis: {e}")
+
+    finally:
+        # Clean up local temporary file after stream renders
+        if os.path.exists(unique_filename):
+            os.remove(unique_filename)
 
     # Disclaimer Footer
     st.markdown("---")
