@@ -91,14 +91,14 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
     else:
         st.write(f"Logged in as: **{st.session_state.user.email}**")
         
-        # --- STRIPE CHECKOUT INTEGRATION ---
+        # --- STRIPE CHECKOUT INTEGRATION (LINK BUTTONS) ---
         st.markdown("---")
         st.subheader("Subscription Plans")
         
         if user_tier == "Free":
             st.write("You are on the **Free** tier.")
             
-            if st.button("🚀 Upgrade to Pro"):
+            if st.button("🚀 Generate Pro Checkout"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
                         line_items=[{
@@ -110,14 +110,12 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                         cancel_url="https://your-app.streamlit.app/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
-                    st.markdown(
-                        f'<meta http-equiv="refresh" content="0;url={checkout_session.url}">',
-                        unsafe_allow_html=True,
-                    )
+                    st.success("Checkout link ready!")
+                    st.link_button("💳 Complete Pro Payment on Stripe", checkout_session.url)
                 except Exception as e:
                     st.error(f"Checkout error: {e}")
 
-            if st.button("🌟 Upgrade to Premium"):
+            if st.button("🌟 Generate Premium Checkout"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
                         line_items=[{
@@ -129,16 +127,14 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                         cancel_url="https://your-app.streamlit.app/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
-                    st.markdown(
-                        f'<meta http-equiv="refresh" content="0;url={checkout_session.url}">',
-                        unsafe_allow_html=True,
-                    )
+                    st.success("Checkout link ready!")
+                    st.link_button("💳 Complete Premium Payment on Stripe", checkout_session.url)
                 except Exception as e:
                     st.error(f"Checkout error: {e}")
 
         elif user_tier == "Pro":
             st.write("You are on the **Pro** tier.")
-            if st.button("🌟 Upgrade to Premium"):
+            if st.button("🌟 Generate Premium Checkout"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
                         line_items=[{
@@ -150,10 +146,8 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                         cancel_url="https://your-app.streamlit.app/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
-                    st.markdown(
-                        f'<meta http-equiv="refresh" content="0;url={checkout_session.url}">',
-                        unsafe_allow_html=True,
-                    )
+                    st.success("Checkout link ready!")
+                    st.link_button("💳 Complete Premium Payment on Stripe", checkout_session.url)
                 except Exception as e:
                     st.error(f"Checkout error: {e}")
         else:
