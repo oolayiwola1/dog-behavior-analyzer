@@ -101,7 +101,6 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
             if st.button("🚀 Upgrade to Pro"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
-                        payment_method_types=["card"],
                         line_items=[{
                             "price": st.secrets["STRIPE_PRO_PRICE_ID"],
                             "quantity": 1,
@@ -121,7 +120,6 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
             if st.button("🌟 Upgrade to Premium"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
-                        payment_method_types=["card"],
                         line_items=[{
                             "price": st.secrets["STRIPE_PREMIUM_PRICE_ID"],
                             "quantity": 1,
@@ -143,7 +141,6 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
             if st.button("🌟 Upgrade to Premium"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
-                        payment_method_types=["card"],
                         line_items=[{
                             "price": st.secrets["STRIPE_PREMIUM_PRICE_ID"],
                             "quantity": 1,
