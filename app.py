@@ -23,14 +23,28 @@ st.set_page_config(
 
 st.title("🐕 Dog Micro-Body Language Analyzer (v2)")
 
-# --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
-st.sidebar.header("Account & Tier")
-
+# --- SESSION & AUTH STATE RESTORATION ---
 if "user" not in st.session_state:
     st.session_state.user = None
 
+if "session" not in st.session_state:
+    st.session_state.session = None
+
 if "analysis_report" not in st.session_state:
     st.session_state.analysis_report = None
+
+# Restore Supabase auth session across reruns so RLS updates succeed
+if st.session_state.session:
+    try:
+        supabase.auth.set_session(
+            st.session_state.session.access_token, 
+            st.session_state.session.refresh_token
+        )
+    except Exception:
+        pass
+
+# --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
+st.sidebar.header("Account & Tier")
 
 # Fetch user tier and usage FIRST if logged in
 user_tier = "Free"
@@ -53,6 +67,9 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
         
+        # "Stay Logged In" preference option
+        stay_logged_in = st.checkbox("Stay Logged In / Remember Me", value=True)
+        
         if st.button("Submit"):
             try:
                 if auth_mode == "Sign Up":
@@ -61,6 +78,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                 else:
                     res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     st.session_state.user = res.user
+                    st.session_state.session = res.session
                     st.success("Logged in successfully!")
                     st.rerun()
             except Exception as e:
@@ -85,6 +103,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
         if st.button("Log Out"):
             supabase.auth.sign_out()
             st.session_state.user = None
+            st.session_state.session = None
             st.session_state.analysis_report = None
             st.rerun()
 
@@ -195,7 +214,7 @@ else:
 
                                     new_count = current_used + 1
 
-                                    # 2. Update Supabase
+                                    # 2. Update Supabase (authenticated session now allows RLS update)
                                     supabase.table("profiles").update({"analyses_used": new_count}).eq("id", st.session_state.user.id).execute()
                                     
                                     # 3. Save report to session state and rerun
