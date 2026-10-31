@@ -29,6 +29,9 @@ st.sidebar.header("Account & Tier")
 if "user" not in st.session_state:
     st.session_state.user = None
 
+if "analysis_report" not in st.session_state:
+    st.session_state.analysis_report = None
+
 # Fetch user tier and usage FIRST if logged in
 user_tier = "Free"
 analyses_used = 0
@@ -82,6 +85,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
         if st.button("Log Out"):
             supabase.auth.sign_out()
             st.session_state.user = None
+            st.session_state.analysis_report = None
             st.rerun()
 
 # --- ENFORCE LOGIN BEFORE APP ACCESS ---
@@ -182,7 +186,9 @@ else:
                                         status_callback=update_status_ui
                                     )
                                     status_box.update(label="Analysis Complete!", state="complete", expanded=False)
-                                    st.markdown(report)
+                                    
+                                    # Save report to session state so it persists across reruns
+                                    st.session_state.analysis_report = report
                                     
                                     # Increment usage count in Supabase and trigger rerun to update sidebar count
                                     new_count = analyses_used + 1
@@ -192,6 +198,10 @@ else:
                                 except Exception as e:
                                     status_box.update(label="Analysis Failed", state="error", expanded=True)
                                     st.error(f"An error occurred during analysis: {e}")
+
+                # Display the saved report if available
+                if st.session_state.analysis_report:
+                    st.markdown(st.session_state.analysis_report)
 
         finally:
             # Clean up local temporary file after stream renders
