@@ -2,6 +2,14 @@ import os
 import uuid
 import cv2
 import streamlit as st
+from supabase import create_client, Client
+
+# --- SUPABASE INITIALIZATION ---
+@st.cache_resource
+def init_supabase() -> Client:
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+supabase = init_supabase()
 
 if "GEMINI_API_KEY" in st.secrets:
     os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
@@ -16,20 +24,68 @@ st.set_page_config(
 st.title("🐕 Dog Micro-Body Language Analyzer (v2)")
 st.markdown("Upload a short video of your dog to analyze posture, ears, tail signals, and emotional state.")
 
-# Sidebar configuration
+# --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
+st.sidebar.header("Account & Tier")
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+# Simple Auth Expander in Sidebar
+with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_state.user):
+    if st.session_state.user is None:
+        auth_mode = st.radio("Mode", ["Log In", "Sign Up"], horizontal=True)
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        
+        if st.button("Submit"):
+            try:
+                if auth_mode == "Sign Up":
+                    res = supabase.auth.sign_up({"email": email, "password": password})
+                    st.success("Check your email for confirmation, or log in if confirmation is disabled!")
+                else:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state.user = res.user
+                    st.success("Logged in successfully!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Authentication error: {e}")
+    else:
+        st.write(f"Logged in as: **{st.session_state.user.email}**")
+        if st.button("Log Out"):
+            supabase.auth.sign_out()
+            st.session_state.user = None
+            st.rerun()
+
+# Determine user tier from database (Defaults to Free if not logged in)
+user_tier = "Free"
+analyses_used = 0
+
+if st.session_state.user:
+    try:
+        profile_res = supabase.table("profiles").select("tier, analyses_used").eq("id", st.session_state.user.id).execute()
+        if profile_res.data:
+            user_tier = profile_res.data[0].get("tier", "Free")
+            analyses_used = profile_res.data[0].get("analyses_used", 0)
+    except Exception:
+        user_tier = "Free"
+
+# Sidebar configuration controls
 st.sidebar.header("Configuration")
 use_mock_mode = st.sidebar.checkbox("Use Mock Mode (Bypass API Quota)", value=False)
 
-# Tier selection & limit mappings
-user_tier = st.sidebar.selectbox("Subscription Tier", ["Free", "Pro", "Premium"])
+# Tier limit mappings
 tier_limits = {
     "Free": 15.0,     # Max 15 seconds
     "Pro": 45.0,      # Max 45 seconds
     "Premium": 120.0  # Max 2 minutes
 }
-max_duration = tier_limits[user_tier]
+max_duration = tier_limits.get(user_tier, 15.0)
 
-st.sidebar.info(f"📋 **{user_tier} Tier Rules:** Max video length is **{int(max_duration)} seconds**.")
+st.sidebar.info(
+    f"📋 **Active Tier: {user_tier}**\n\n"
+    f"• Max video length: **{int(max_duration)}s**\n"
+    f"• Analyses used this month: **{analyses_used}**"
+)
 
 # File uploader
 uploaded_file = st.file_uploader("Choose a video file (.mp4, .mov)", type=["mp4", "mov", "avi"])
@@ -68,7 +124,7 @@ if uploaded_file is not None:
                 st.warning(
                     f"⚠️ **Clip exceeds {user_tier} Tier limit!**\n\n"
                     f"This video is **{duration:.1f} seconds long**, but your current **{user_tier} Tier** allows a maximum of **{int(max_duration)} seconds**. "
-                    f"Please switch to a higher tier in the sidebar or upload a shorter clip to proceed."
+                    f"Please upgrade your tier or upload a shorter clip to proceed."
                 )
             else:
                 if st.button("Analyze Behavior", type="primary"):
