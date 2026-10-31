@@ -187,12 +187,19 @@ else:
                                     )
                                     status_box.update(label="Analysis Complete!", state="complete", expanded=False)
                                     
-                                    # Save report to session state so it persists across reruns
-                                    st.session_state.analysis_report = report
-                                    
-                                    # Increment usage count in Supabase and trigger rerun to update sidebar count
-                                    new_count = analyses_used + 1
+                                    # 1. Fetch fresh count right before incrementing to avoid stale state
+                                    fresh_profile = supabase.table("profiles").select("analyses_used").eq("id", st.session_state.user.id).execute()
+                                    current_used = 0
+                                    if fresh_profile.data:
+                                        current_used = fresh_profile.data[0].get("analyses_used", 0)
+
+                                    new_count = current_used + 1
+
+                                    # 2. Update Supabase
                                     supabase.table("profiles").update({"analyses_used": new_count}).eq("id", st.session_state.user.id).execute()
+                                    
+                                    # 3. Save report to session state and rerun
+                                    st.session_state.analysis_report = report
                                     st.rerun()
                                         
                                 except Exception as e:
