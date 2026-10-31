@@ -36,13 +36,31 @@ if uploaded_file is not None:
     with col2:
         st.subheader("Behavioral Analysis Report")
         if st.button("Analyze Behavior", type="primary"):
-            with st.spinner("Extracting frames and consulting AI behaviorist..."):
+            # Step-by-step streaming status indicator (Optimization C)
+            with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
+                def update_status_ui(msg):
+                    status_box.write(f"👉 {msg}")
+
                 try:
-                    report = analyze_dog_behavior(temp_video_path, use_mock=use_mock_mode)
+                    report = analyze_dog_behavior(
+                        temp_video_path, 
+                        use_mock=use_mock_mode, 
+                        status_callback=update_status_ui
+                    )
+                    status_box.update(label="Analysis Complete!", state="complete", expanded=False)
                     st.markdown(report)
                 except Exception as e:
+                    status_box.update(label="Analysis Failed", state="error", expanded=True)
                     st.error(f"An error occurred during analysis: {e}")
+
+    # Disclaimer Footer
+    st.markdown("---")
+    st.caption(
+        "⚠️ **Disclaimer:** This application uses AI models to evaluate visual cues in video clips for educational "
+        "and informational purposes only. It is not a substitute for professional veterinary advice, formal behavioral "
+        "diagnosis, or certified dog training consultation. If your dog exhibits severe anxiety, aggression, or sudden "
+        "behavioral changes, please consult a qualified veterinary behaviorist or certified professional trainer."
+    )
 
 else:
     st.info("Please upload a video file to get started.")
-
