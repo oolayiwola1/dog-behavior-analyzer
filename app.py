@@ -2,9 +2,10 @@ import os
 import uuid
 import cv2
 import streamlit as st
+import stripe
 from supabase import create_client, Client
 
-# --- SUPABASE INITIALIZATION ---
+# --- SUPABASE & STRIPE INITIALIZATION ---
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -13,6 +14,10 @@ supabase = init_supabase()
 
 if "GEMINI_API_KEY" in st.secrets:
     os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
+if "STRIPE_SECRET_KEY" in st.secrets:
+    stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+
 from analyzer import analyze_dog_behavior
 
 st.set_page_config(
@@ -86,20 +91,78 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
     else:
         st.write(f"Logged in as: **{st.session_state.user.email}**")
         
-        # Quick Tier Upgrade Simulation for Testing
-        tier_options = ["Free", "Pro", "Premium"]
-        current_tier_index = tier_options.index(user_tier) if user_tier in tier_options else 0
-        selected_upgrade = st.selectbox("Change Tier (Test)", tier_options, index=current_tier_index)
+        # --- STRIPE CHECKOUT INTEGRATION ---
+        st.markdown("---")
+        st.subheader("Subscription Plans")
         
-        if selected_upgrade != user_tier:
-            if st.button("Update Tier"):
+        if user_tier == "Free":
+            st.write("You are on the **Free** tier.")
+            
+            if st.button("🚀 Upgrade to Pro"):
                 try:
-                    supabase.table("profiles").update({"tier": selected_upgrade}).eq("id", st.session_state.user.id).execute()
-                    st.success(f"Tier updated to {selected_upgrade}!")
-                    st.rerun()
+                    checkout_session = stripe.checkout.Session.create(
+                        payment_method_types=["card"],
+                        line_items=[{
+                            "price": st.secrets["STRIPE_PRO_PRICE_ID"],
+                            "quantity": 1,
+                        }],
+                        mode="subscription",
+                        success_url="https://your-app.streamlit.app/?success=true",
+                        cancel_url="https://your-app.streamlit.app/?canceled=true",
+                        client_reference_id=st.session_state.user.id,
+                    )
+                    st.markdown(
+                        f'<meta http-equiv="refresh" content="0;url={checkout_session.url}">',
+                        unsafe_allow_html=True,
+                    )
                 except Exception as e:
-                    st.error(f"Failed to update tier: {e}")
+                    st.error(f"Checkout error: {e}")
 
+            if st.button("🌟 Upgrade to Premium"):
+                try:
+                    checkout_session = stripe.checkout.Session.create(
+                        payment_method_types=["card"],
+                        line_items=[{
+                            "price": st.secrets["STRIPE_PREMIUM_PRICE_ID"],
+                            "quantity": 1,
+                        }],
+                        mode="subscription",
+                        success_url="https://your-app.streamlit.app/?success=true",
+                        cancel_url="https://your-app.streamlit.app/?canceled=true",
+                        client_reference_id=st.session_state.user.id,
+                    )
+                    st.markdown(
+                        f'<meta http-equiv="refresh" content="0;url={checkout_session.url}">',
+                        unsafe_allow_html=True,
+                    )
+                except Exception as e:
+                    st.error(f"Checkout error: {e}")
+
+        elif user_tier == "Pro":
+            st.write("You are on the **Pro** tier.")
+            if st.button("🌟 Upgrade to Premium"):
+                try:
+                    checkout_session = stripe.checkout.Session.create(
+                        payment_method_types=["card"],
+                        line_items=[{
+                            "price": st.secrets["STRIPE_PREMIUM_PRICE_ID"],
+                            "quantity": 1,
+                        }],
+                        mode="subscription",
+                        success_url="https://your-app.streamlit.app/?success=true",
+                        cancel_url="https://your-app.streamlit.app/?canceled=true",
+                        client_reference_id=st.session_state.user.id,
+                    )
+                    st.markdown(
+                        f'<meta http-equiv="refresh" content="0;url={checkout_session.url}">',
+                        unsafe_allow_html=True,
+                    )
+                except Exception as e:
+                    st.error(f"Checkout error: {e}")
+        else:
+            st.write("You are on the **Premium** tier (Unlimited)! 🌟")
+
+        st.markdown("---")
         if st.button("Log Out"):
             supabase.auth.sign_out()
             st.session_state.user = None
@@ -118,9 +181,9 @@ else:
 
     # Tier limit mappings
     tier_limits = {
-        "Free": 15.0,     # Max 15 seconds
-        "Pro": 45.0,      # Max 45 seconds
-        "Premium": 120.0  # Max 2 minutes
+        "Free": 15.0,      # Max 15 seconds
+        "Pro": 45.0,       # Max 45 seconds
+        "Premium": 120.0   # Max 2 minutes
     }
     max_duration = tier_limits.get(user_tier, 15.0)
 
