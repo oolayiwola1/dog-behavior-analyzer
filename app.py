@@ -106,8 +106,8 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                             "quantity": 1,
                         }],
                         mode="subscription",
-                        success_url="https://your-app.streamlit.app/?success=true",
-                        cancel_url="https://your-app.streamlit.app/?canceled=true",
+                        success_url="http://localhost:8501/?success=true",
+                        cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
                     st.success("Checkout link ready!")
@@ -123,8 +123,8 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                             "quantity": 1,
                         }],
                         mode="subscription",
-                        success_url="https://your-app.streamlit.app/?success=true",
-                        cancel_url="https://your-app.streamlit.app/?canceled=true",
+                        success_url="http://localhost:8501/?success=true",
+                        cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
                     st.success("Checkout link ready!")
@@ -142,8 +142,8 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                             "quantity": 1,
                         }],
                         mode="subscription",
-                        success_url="https://your-app.streamlit.app/?success=true",
-                        cancel_url="https://your-app.streamlit.app/?canceled=true",
+                        success_url="http://localhost:8501/?success=true",
+                        cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
                     st.success("Checkout link ready!")
