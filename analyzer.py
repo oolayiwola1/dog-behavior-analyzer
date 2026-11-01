@@ -54,24 +54,50 @@ def extract_frames(video_path, frame_rate=1.0, max_frames=15, resize_dim=(640, 3
     cap.release()
     return frames_data
 
-def analyze_dog_behavior(video_path, use_mock=False, status_callback=None):
+def analyze_dog_behavior(video_path, use_mock=False, status_callback=None, language="English"):
     """
-    Analyzes dog behavior frames using Gemini Flash or returns mock data.
+    Analyzes dog behavior frames using Gemini Flash or returns mock data in the requested language.
     """
     if use_mock:
         if status_callback:
             status_callback("Using Mock Data (Bypassing Gemini API)...")
-        return (
-            "### 1. Overall Mood / Emotional State (MOCK DATA)\n"
-            "- **State:** Mildly Alert / Curious\n"
-            "- **Confidence:** High\n\n"
-            "### 2. Timeline Breakdown\n"
-            "- **0.0s - 2.0s:** Ears forward, soft eyes, loose tail posture indicating calm engagement.\n"
-            "- **3.0s - 5.0s:** Brief moment of lip licking and head turn, suggesting mild appeasement behavior.\n\n"
-            "### 3. Actionable Advice\n"
-            "- Give the dog space if appeasement signals continue.\n"
-            "- Maintain a calm, low-pressure environment."
-        )
+        # Multi-lingual mock response support
+        if language == "Français":
+            return (
+                "### 1. État émotionnel global (DONNÉES SIMULÉES)\n"
+                "- **État :** Légèrement en alerte / Curieux\n"
+                "- **Confiance :** Élevée\n\n"
+                "### 2. Chronologie\n"
+                "- **0.0s - 2.0s :** Oreilles vers l'avant, yeux doux, posture de queue souple indiquant un engagement calme.\n"
+                "- **3.0s - 5.0s :** Bref moment de léchage de museau et rotation de la tête, suggérant un comportement d'apaisement.\n\n"
+                "### 3. Conseils pratiques\n"
+                "- Donnez de l'espace au chien si les signaux d'apaisement persistent.\n"
+                "- Maintenez un environnement calme et à faible pression."
+            )
+        elif language == "Español":
+            return (
+                "### 1. Estado Emocional General (DATOS SIMULADOS)\n"
+                "- **Estado:** Ligeramente en alerta / Curioso\n"
+                "- **Confianza:** Alta\n\n"
+                "### 2. Desglose de Línea de Tiempo\n"
+                "- **0.0s - 2.0s:** Orejas hacia adelante, ojos suaves, postura de cola suelta que indica compromiso tranquilo.\n"
+                "- **3.0s - 5.0s:** Breve momento de lamido de hocico y giro de cabeza, sugiriendo comportamiento de apaciguamiento.\n\n"
+                "### 3. Consejos Prácticos\n"
+                "- Dale espacio al perro si continúan las señales de apaciguamiento.\n"
+                "- Mantén un ambiente tranquilo y de baja presión."
+            )
+        else:
+            return (
+                "### 1. Overall Mood / Emotional State (MOCK DATA)\n"
+                "- **State:** Mildly Alert / Curious\n"
+                "- **Confidence:** High\n\n"
+                "### 2. Timeline Breakdown\n"
+                "- **0.0s - 2.0s:** Ears forward, soft eyes, loose tail posture indicating calm engagement.\n"
+                "- **3.0s - 5.0s:** Brief moment of lip licking and head turn, suggesting mild appeasement behavior.\n\n"
+                "### 3. Actionable Advice\n"
+                "- Give the dog space if appeasement signals continue.\n"
+                "- Maintain a calm, low-pressure environment."
+            )
 
     try:
         if status_callback:
@@ -85,12 +111,13 @@ def analyze_dog_behavior(video_path, use_mock=False, status_callback=None):
             status_callback(f"Extracted {len(frames_data)} keyframes. Formatting request for Gemini...")
 
         contents = [
-            "You are an expert certified veterinary behaviorist (IAABC/CBCC-KA). "
-            "Analyze the micro-body language signals across these frames (ear posture, tail movement, whale eye, mouth tension).\n\n"
-            "Provide a structured analysis for a NEW DOG OWNER with:\n"
-            "1. **Overall Mood / Emotional State**\n"
-            "2. **Timeline Breakdown**\n"
-            "3. **Actionable Advice**\n"
+            f"You are an expert certified veterinary behaviorist (IAABC/CBCC-KA). "
+            f"Analyze the micro-body language signals across these frames (ear posture, tail movement, whale eye, mouth tension).\n\n"
+            f"Provide a structured analysis for a NEW DOG OWNER with:\n"
+            f"1. **Overall Mood / Emotional State**\n"
+            f"2. **Timeline Breakdown**\n"
+            f"3. **Actionable Advice**\n\n"
+            f"CRITICAL: Write the entire final report strictly in {language}."
         ]
 
         for timestamp, img in frames_data:
@@ -98,7 +125,7 @@ def analyze_dog_behavior(video_path, use_mock=False, status_callback=None):
             contents.append(img)
 
         if status_callback:
-            status_callback("Consulting AI Behaviorist (gemini-flash-latest)...")
+            status_callback(f"Consulting AI Behaviorist in {language} (gemini-flash-latest)...")
 
         client = genai.Client()
         response = client.models.generate_content(
