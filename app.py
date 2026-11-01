@@ -54,11 +54,28 @@ if "success" in query_params:
     st.success("🎉 Payment successful! Verifying your subscription...")
     if st.session_state.user:
         try:
-            # Determine which tier based on active secrets or default to Pro
-            # (You can expand this by querying Stripe session API if passing session_id in query params)
+            session_id = query_params.get("session_id")
             new_tier = "Pro"
-            
-            supabase.table("profiles").update({"tier": new_tier}).eq("id", st.session_state.user.id).execute()
+            customer_id = None
+
+            if session_id:
+                # Retrieve checkout session from Stripe to confirm details
+                checkout_session = stripe.checkout.Session.retrieve(session_id)
+                customer_id = checkout_session.customer
+                
+                # Check price ID to determine if Pro or Premium
+                line_items = stripe.checkout.Session.list_line_items(session_id)
+                if line_items.data:
+                    price_id = line_items.data[0].price.id
+                    if price_id == st.secrets.get("STRIPE_PREMIUM_PRICE_ID"):
+                        new_tier = "Premium"
+
+            # Update Supabase profile with new tier and customer ID
+            update_data = {"tier": new_tier}
+            if customer_id:
+                update_data["stripe_customer_id"] = customer_id
+
+            supabase.table("profiles").update(update_data).eq("id", st.session_state.user.id).execute()
             st.success(f"✨ Account successfully upgraded to **{new_tier}**!")
             st.query_params.clear()
             st.rerun()
@@ -71,16 +88,18 @@ elif "canceled" in query_params:
 # --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
 st.sidebar.header("Account & Tier")
 
-# Fetch user tier and usage FIRST if logged in
+# Fetch user tier, analyses used, and stripe customer ID FIRST if logged in
 user_tier = "Free"
 analyses_used = 0
+stripe_customer_id = None
 
 if st.session_state.user:
     try:
-        profile_res = supabase.table("profiles").select("tier, analyses_used").eq("id", st.session_state.user.id).execute()
+        profile_res = supabase.table("profiles").select("tier, analyses_used, stripe_customer_id").eq("id", st.session_state.user.id).execute()
         if profile_res.data:
             user_tier = profile_res.data[0].get("tier", "Free")
             analyses_used = profile_res.data[0].get("analyses_used", 0)
+            stripe_customer_id = profile_res.data[0].get("stripe_customer_id")
     except Exception as e:
         st.sidebar.error(f"Could not fetch profile: {e}")
         user_tier = "Free"
@@ -111,7 +130,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
     else:
         st.write(f"Logged in as: **{st.session_state.user.email}**")
         
-        # --- STRIPE CHECKOUT INTEGRATION (LINK BUTTONS) ---
+        # --- STRIPE CHECKOUT & PORTAL INTEGRATION ---
         st.markdown("---")
         st.subheader("Subscription Plans")
         
@@ -126,7 +145,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                             "quantity": 1,
                         }],
                         mode="subscription",
-                        success_url="http://localhost:8501/?success=true",
+                        success_url="http://localhost:8501/?success=true&session_id={CHECKOUT_SESSION_ID}",
                         cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
@@ -143,7 +162,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                             "quantity": 1,
                         }],
                         mode="subscription",
-                        success_url="http://localhost:8501/?success=true",
+                        success_url="http://localhost:8501/?success=true&session_id={CHECKOUT_SESSION_ID}",
                         cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
@@ -154,7 +173,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
 
         elif user_tier == "Pro":
             st.write("You are on the **Pro** tier.")
-            if st.button("🌟 Generate Premium Checkout"):
+            if st.button("🌟 Generate Premium Checkout (Upgrade)"):
                 try:
                     checkout_session = stripe.checkout.Session.create(
                         line_items=[{
@@ -162,7 +181,7 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                             "quantity": 1,
                         }],
                         mode="subscription",
-                        success_url="http://localhost:8501/?success=true",
+                        success_url="http://localhost:8501/?success=true&session_id={CHECKOUT_SESSION_ID}",
                         cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
@@ -172,6 +191,22 @@ with st.sidebar.expander("🔐 Account Login / Signup", expanded=not st.session_
                     st.error(f"Checkout error: {e}")
         else:
             st.write("You are on the **Premium** tier (Unlimited)! 🌟")
+
+        # --- MANAGE / CANCEL SUBSCRIPTION PORTAL BUTTON ---
+        if user_tier in ["Pro", "Premium"]:
+            st.markdown("---")
+            if st.button("⚙️ Manage Subscription / Cancel"):
+                if stripe_customer_id:
+                    try:
+                        portal_session = stripe.billing_portal.Session.create(
+                            customer=stripe_customer_id,
+                            return_url="http://localhost:8501/",
+                        )
+                        st.link_button("👉 Open Stripe Billing Portal", portal_session.url)
+                    except Exception as e:
+                        st.error(f"Could not open billing portal: {e}")
+                else:
+                    st.warning("No active Stripe customer ID found for this account. Please contact support if you believe this is an error.")
 
         st.markdown("---")
         if st.button("Log Out"):
