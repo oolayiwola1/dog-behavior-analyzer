@@ -152,7 +152,7 @@ TRANSLATIONS = {
         "detected_length": "⏱️ Duración detectada: **{duration:.1f}s** | Límite: **{limit}s**",
         "report_header": "Informe de Análisis de Comportamiento",
         "clip_exceeds": "⚠️ **¡El video excede el límite del Plan {tier}!**\n\nEste video dura **{duration:.1f} segundos**, pero tu plan **{tier}** permite un máximo de **{limit} segundos**. Actualiza tu plan o sube un clip más corto.",
-        "limit_reached": "🚫 **¡Límite de análisis mensual alcanzado!**\n\Has utilizado los **{used}** análisis permitidos para el plan **{tier}**. Actualiza tu plan o espera hasta el próximo mes.",
+        "limit_reached": "🚫 **¡Límite de análisis mensual alcanzado!**\n\nHas utilizado los **{used}** análisis permitidos para el plan **{tier}**. Actualiza tu plan o espera hasta el próximo mes.",
         "btn_analyze": "Analizar Comportamiento",
         "initializing_pipeline": "Iniciando análisis...",
         "analysis_complete": "¡Análisis completado!",
@@ -199,18 +199,15 @@ if "success" in query_params:
             customer_id = None
 
             if session_id:
-                # Retrieve checkout session from Stripe to confirm details
                 checkout_session = stripe.checkout.Session.retrieve(session_id)
                 customer_id = checkout_session.customer
                 
-                # Check price ID to determine if Pro or Premium
                 line_items = stripe.checkout.Session.list_line_items(session_id)
                 if line_items.data:
                     price_id = line_items.data[0].price.id
                     if price_id == st.secrets.get("STRIPE_PREMIUM_PRICE_ID"):
                         new_tier = "Premium"
 
-            # Update Supabase profile with new tier and customer ID
             update_data = {"tier": new_tier}
             if customer_id:
                 update_data["stripe_customer_id"] = customer_id
@@ -228,7 +225,6 @@ elif "canceled" in query_params:
 # --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
 st.sidebar.header(t["account_header"])
 
-# Fetch user tier, analyses used, and stripe customer ID FIRST if logged in
 user_tier = "Free"
 analyses_used = 0
 stripe_customer_id = None
@@ -244,14 +240,12 @@ if st.session_state.user:
         st.sidebar.error(f"Could not fetch profile: {e}")
         user_tier = "Free"
 
-# Simple Auth Expander in Sidebar
 with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
     if st.session_state.user is None:
         auth_mode = st.radio(t["mode"], [t["login"], t["signup"]], horizontal=True)
         email = st.text_input(t["email"])
         password = st.text_input(t["password"], type="password")
         
-        # "Stay Logged In" preference option
         stay_logged_in = st.checkbox(t["stay_logged_in"], value=True)
         
         if st.button(t["submit"]):
@@ -270,7 +264,6 @@ with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
     else:
         st.write(f"Logged in as: **{st.session_state.user.email}**")
         
-        # --- STRIPE CHECKOUT & PORTAL INTEGRATION ---
         st.markdown("---")
         st.subheader(t["plans_header"])
         
@@ -325,3 +318,147 @@ with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
                         cancel_url="http://localhost:8501/?canceled=true",
                         client_reference_id=st.session_state.user.id,
                     )
+                    st.success("Checkout link ready!")
+                    st.link_button(t["btn_complete_premium"], checkout_session.url)
+                except Exception as e:
+                    st.error(f"Checkout error: {e}")
+        else:
+            st.write(t["premium_tier_msg"])
+
+        if user_tier in ["Pro", "Premium"]:
+            st.markdown("---")
+            if st.button(t["btn_manage_sub"]):
+                if stripe_customer_id:
+                    try:
+                        portal_session = stripe.billing_portal.Session.create(
+                            customer=stripe_customer_id,
+                            return_url="http://localhost:8501/",
+                        )
+                        st.link_button(t["btn_open_portal"], portal_session.url)
+                    except Exception as e:
+                        st.error(f"Could not open billing portal: {e}")
+                else:
+                    st.warning("No active Stripe customer ID found for this account. Please contact support if you believe this is an error.")
+
+        st.markdown("---")
+        if st.button(t["logout"]):
+            supabase.auth.sign_out()
+            st.session_state.user = None
+            st.session_state.session = None
+            st.session_state.analysis_report = None
+            st.rerun()
+
+# --- ENFORCE LOGIN BEFORE APP ACCESS ---
+if st.session_state.user is None:
+    st.warning(t["login_prompt"])
+    st.info(t["login_info"])
+else:
+    st.sidebar.header(t["config_header"])
+    use_mock_mode = st.sidebar.checkbox(t["mock_mode"], value=False)
+
+    tier_limits = {
+        "Free": 15.0,
+        "Pro": 45.0,
+        "Premium": 120.0
+    }
+    max_duration = tier_limits.get(user_tier, 15.0)
+
+    st.sidebar.info(
+        f"{t['active_tier'].format(tier=user_tier)}\n\n"
+        f"{t['max_length'].format(length=int(max_duration))}\n"
+        f"{t['analyses_used'].format(used=analyses_used)}"
+    )
+
+    st.markdown(t["app_intro"])
+
+    uploaded_file = st.file_uploader(t["uploader_label"], type=["mp4", "mov", "avi"])
+
+    if uploaded_file is not None:
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        if not file_extension:
+            file_extension = ".mp4"
+        unique_filename = f"temp_video_{uuid.uuid4().hex}{file_extension}"
+
+        try:
+            with open(unique_filename, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            cap = cv2.VideoCapture(unique_filename)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = frame_count / fps if fps > 0 else 0
+            cap.release()
+
+            col1, col2 = st.columns([1, 1])
+
+            with col1:
+                st.subheader(t["uploaded_video_header"])
+                st.video(unique_filename)
+                st.caption(t["detected_length"].format(duration=duration, limit=int(max_duration)))
+
+            with col2:
+                st.subheader(t["report_header"])
+                
+                if duration > max_duration:
+                    st.warning(
+                        t["clip_exceeds"].format(tier=user_tier, duration=duration, limit=int(max_duration))
+                    )
+                else:
+                    analysis_limits = {
+                        "Free": 5,
+                        "Pro": 15,
+                        "Premium": 999999
+                    }
+                    max_analyses = analysis_limits.get(user_tier, 5)
+                    
+                    limit_reached = False
+                    if user_tier != "Premium" and analyses_used >= max_analyses:
+                        limit_reached = True
+
+                    if limit_reached:
+                        st.error(
+                            t["limit_reached"].format(used=analyses_used, tier=user_tier)
+                        )
+                    else:
+                        if st.button(t["btn_analyze"], type="primary"):
+                            with st.status(t["initializing_pipeline"], expanded=True) as status_box:
+                                def update_status_ui(msg):
+                                    status_box.write(f"👉 {msg}")
+
+                                try:
+                                    report = analyze_dog_behavior(
+                                        unique_filename, 
+                                        use_mock=use_mock_mode, 
+                                        status_callback=update_status_ui,
+                                        language=selected_lang
+                                    )
+                                    status_box.update(label=t["analysis_complete"], state="complete", expanded=False)
+                                    
+                                    fresh_profile = supabase.table("profiles").select("analyses_used").eq("id", st.session_state.user.id).execute()
+                                    current_used = 0
+                                    if fresh_profile.data:
+                                        current_used = fresh_profile.data[0].get("analyses_used", 0)
+
+                                    new_count = current_used + 1
+
+                                    supabase.table("profiles").update({"analyses_used": new_count}).eq("id", st.session_state.user.id).execute()
+                                    
+                                    st.session_state.analysis_report = report
+                                    st.rerun()
+                                        
+                                except Exception as e:
+                                    status_box.update(label=t["analysis_failed"], state="error", expanded=True)
+                                    st.error(f"An error occurred during analysis: {e}")
+
+                if st.session_state.analysis_report:
+                    st.markdown(st.session_state.analysis_report)
+
+        finally:
+            if os.path.exists(unique_filename):
+                os.remove(unique_filename)
+
+        st.markdown("---")
+        st.caption(t["disclaimer"])
+
+    else:
+        st.info(t["upload_prompt"])
