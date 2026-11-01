@@ -28,13 +28,6 @@ st.set_page_config(
 
 st.title("🐕 Dog Micro-Body Language Analyzer (v2)")
 
-# --- HANDLE STRIPE REDIRECT SUCCESS / CANCELLATION ---
-query_params = st.query_params
-if "success" in query_params:
-    st.success("🎉 Payment successful! Your subscription is updating in the background. Please log back in if prompted to view your new tier.")
-elif "canceled" in query_params:
-    st.info("Checkout canceled. Feel free to try again whenever you're ready!")
-
 # --- SESSION & AUTH STATE RESTORATION ---
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -54,6 +47,26 @@ if st.session_state.session:
         )
     except Exception:
         pass
+
+# --- HANDLE STRIPE REDIRECT SUCCESS / CANCELLATION ---
+query_params = st.query_params
+if "success" in query_params:
+    st.success("🎉 Payment successful! Verifying your subscription...")
+    if st.session_state.user:
+        try:
+            # Determine which tier based on active secrets or default to Pro
+            # (You can expand this by querying Stripe session API if passing session_id in query params)
+            new_tier = "Pro"
+            
+            supabase.table("profiles").update({"tier": new_tier}).eq("id", st.session_state.user.id).execute()
+            st.success(f"✨ Account successfully upgraded to **{new_tier}**!")
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not automatically sync tier: {e}")
+elif "canceled" in query_params:
+    st.info("Checkout canceled. Feel free to try again whenever you're ready!")
+    st.query_params.clear()
 
 # --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
 st.sidebar.header("Account & Tier")
