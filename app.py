@@ -235,3 +235,74 @@ else:
                 else:
                     # Define monthly analysis count limits
                     analysis_limits = {
+                        "Free": 5,
+                        "Pro": 15,
+                        "Premium": 999999  # Unlimited
+                    }
+                    max_analyses = analysis_limits.get(user_tier, 5)
+                    
+                    # Check monthly usage limit if user is logged in
+                    limit_reached = False
+                    if user_tier != "Premium" and analyses_used >= max_analyses:
+                        limit_reached = True
+
+                    if limit_reached:
+                        st.error(
+                            f"🚫 **Monthly Analysis Limit Reached!**\n\n"
+                            f"You have used all **{analyses_used}** of your allowed analyses for the **{user_tier} Tier**. "
+                            f"Upgrade your plan or wait until next month to run more analyses."
+                        )
+                    else:
+                        if st.button("Analyze Behavior", type="primary"):
+                            # Step-by-step streaming status indicator
+                            with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
+                                def update_status_ui(msg):
+                                    status_box.write(f"👉 {msg}")
+
+                                try:
+                                    report = analyze_dog_behavior(
+                                        unique_filename, 
+                                        use_mock=use_mock_mode, 
+                                        status_callback=update_status_ui
+                                    )
+                                    status_box.update(label="Analysis Complete!", state="complete", expanded=False)
+                                    
+                                    # 1. Fetch fresh count right before incrementing to avoid stale state
+                                    fresh_profile = supabase.table("profiles").select("analyses_used").eq("id", st.session_state.user.id).execute()
+                                    current_used = 0
+                                    if fresh_profile.data:
+                                        current_used = fresh_profile.data[0].get("analyses_used", 0)
+
+                                    new_count = current_used + 1
+
+                                    # 2. Update Supabase (authenticated session now allows RLS update)
+                                    supabase.table("profiles").update({"analyses_used": new_count}).eq("id", st.session_state.user.id).execute()
+                                    
+                                    # 3. Save report to session state and rerun
+                                    st.session_state.analysis_report = report
+                                    st.rerun()
+                                        
+                                except Exception as e:
+                                    status_box.update(label="Analysis Failed", state="error", expanded=True)
+                                    st.error(f"An error occurred during analysis: {e}")
+
+                # Display the saved report if available
+                if st.session_state.analysis_report:
+                    st.markdown(st.session_state.analysis_report)
+
+        finally:
+            # Clean up local temporary file after stream renders
+            if os.path.exists(unique_filename):
+                os.remove(unique_filename)
+
+        # Disclaimer Footer
+        st.markdown("---")
+        st.caption(
+            "⚠️ **Disclaimer:** This application uses AI models to evaluate visual cues in video clips for educational "
+            "and informational purposes only. It is not a substitute for professional veterinary advice, formal behavioral "
+            "diagnosis, or certified dog training consultation. If your dog exhibits severe anxiety, aggression, or sudden "
+            "behavioral changes, please consult a qualified veterinary behaviorist or certified professional trainer."
+        )
+
+    else:
+        st.info("Please upload a video file to get started.")
