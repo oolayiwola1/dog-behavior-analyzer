@@ -1,7 +1,7 @@
 import os
 import uuid
-import cv2
 import tempfile
+import cv2
 import streamlit as st
 import stripe
 from supabase import create_client, Client
@@ -176,7 +176,6 @@ def downsample_video(input_path: str, target_fps: int = 10, max_height: int = 72
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Calculate new dimensions (preserving aspect ratio, capping height at 720p)
     if height > max_height:
         scale = max_height / height
         new_height = max_height
@@ -185,7 +184,6 @@ def downsample_video(input_path: str, target_fps: int = 10, max_height: int = 72
         new_height = height
         new_width = width
 
-    # Determine frame skip interval to hit target FPS (e.g., 30fps -> 10fps means take every 3rd frame)
     skip_ratio = max(1, int(round(original_fps / target_fps)))
 
     output_tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
@@ -291,13 +289,16 @@ if st.session_state.user:
 
 with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
     if st.session_state.user is None:
-        auth_mode = st.radio(t["mode"], [t["login"], t["signup"]], horizontal=True)
-        email = st.text_input(t["email"])
-        password = st.text_input(t["password"], type="password")
-        
-        stay_logged_in = st.checkbox(t["stay_logged_in"], value=True)
-        
-        if st.button(t["submit"]):
+        # Wrapped in st.form to allow pressing ENTER to submit credentials
+        with st.form("login_form"):
+            auth_mode = st.radio(t["mode"], [t["login"], t["signup"]], horizontal=True)
+            email = st.text_input(t["email"])
+            password = st.text_input(t["password"], type="password")
+            stay_logged_in = st.checkbox(t["stay_logged_in"], value=True)
+            
+            submit_btn = st.form_submit_button(t["submit"])
+
+        if submit_btn:
             try:
                 if auth_mode == t["signup"]:
                     res = supabase.auth.sign_up({"email": email, "password": password})
@@ -433,7 +434,6 @@ else:
             with open(raw_filename, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
-            # Optimize video via OpenCV (downscale to 720p max, downsample to 10 FPS)
             with st.spinner("Optimizing video stream for fast AI processing..."):
                 optimized_filename = downsample_video(raw_filename, target_fps=10, max_height=720)
 
@@ -480,7 +480,6 @@ else:
                                     status_box.write(f"👉 {msg}")
 
                                 try:
-                                    # Pass the optimized file to the Gemini analyzer pipeline
                                     report = analyze_dog_behavior(
                                         optimized_filename, 
                                         use_mock=use_mock_mode, 
