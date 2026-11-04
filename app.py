@@ -1,6 +1,7 @@
 import os
 import uuid
 import cv2
+import tempfile
 import streamlit as st
 import stripe
 from supabase import create_client, Client
