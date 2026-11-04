@@ -162,6 +162,54 @@ TRANSLATIONS = {
     }
 }
 
+# --- HELPER FUNCTIONS ---
+def downsample_video(input_path: str, target_fps: int = 10, max_height: int = 720) -> str:
+    """Takes a heavy video file, reduces its resolution and frame rate, 
+    and saves it to a lighter temporary file for lightning-fast Gemini analysis.
+    """
+    cap = cv2.VideoCapture(input_path)
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    if original_fps <= 0:
+        original_fps = 30.0  # Fallback default
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Calculate new dimensions (preserving aspect ratio, capping height at 720p)
+    if height > max_height:
+        scale = max_height / height
+        new_height = max_height
+        new_width = int(width * scale)
+    else:
+        new_height = height
+        new_width = width
+
+    # Determine frame skip interval to hit target FPS (e.g., 30fps -> 10fps means take every 3rd frame)
+    skip_ratio = max(1, int(round(original_fps / target_fps)))
+
+    output_tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    output_path = output_tfile.name
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, target_fps, (new_width, new_height))
+
+    frame_idx = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        if frame_idx % skip_ratio == 0:
+            if new_height != height or new_width != width:
+                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            out.write(frame)
+        
+        frame_idx += 1
+
+    cap.release()
+    out.release()
+    return output_path
+
 # --- LANGUAGE SELECTOR ---
 selected_lang = st.sidebar.selectbox("🌐 Language / Langue / Idioma", ["English", "Français", "Español"])
 t = TRANSLATIONS[selected_lang]
@@ -377,13 +425,18 @@ else:
         file_extension = os.path.splitext(uploaded_file.name)[1]
         if not file_extension:
             file_extension = ".mp4"
-        unique_filename = f"temp_video_{uuid.uuid4().hex}{file_extension}"
+        raw_filename = f"temp_raw_{uuid.uuid4().hex}{file_extension}"
+        optimized_filename = None
 
         try:
-            with open(unique_filename, "wb") as f:
+            with open(raw_filename, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
-            cap = cv2.VideoCapture(unique_filename)
+            # Optimize video via OpenCV (downscale to 720p max, downsample to 10 FPS)
+            with st.spinner("Optimizing video stream for fast AI processing..."):
+                optimized_filename = downsample_video(raw_filename, target_fps=10, max_height=720)
+
+            cap = cv2.VideoCapture(optimized_filename)
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration = frame_count / fps if fps > 0 else 0
@@ -393,7 +446,7 @@ else:
 
             with col1:
                 st.subheader(t["uploaded_video_header"])
-                st.video(unique_filename)
+                st.video(uploaded_file)
                 st.caption(t["detected_length"].format(duration=duration, limit=int(max_duration)))
 
             with col2:
@@ -426,8 +479,9 @@ else:
                                     status_box.write(f"👉 {msg}")
 
                                 try:
+                                    # Pass the optimized file to the Gemini analyzer pipeline
                                     report = analyze_dog_behavior(
-                                        unique_filename, 
+                                        optimized_filename, 
                                         use_mock=use_mock_mode, 
                                         status_callback=update_status_ui,
                                         language=selected_lang
@@ -454,8 +508,10 @@ else:
                     st.markdown(st.session_state.analysis_report)
 
         finally:
-            if os.path.exists(unique_filename):
-                os.remove(unique_filename)
+            if os.path.exists(raw_filename):
+                os.remove(raw_filename)
+            if optimized_filename and os.path.exists(optimized_filename):
+                os.remove(optimized_filename)
 
         st.markdown("---")
         st.caption(t["disclaimer"])
