@@ -51,13 +51,10 @@ TRANSLATIONS = {
         "free_tier_msg": "You are on the **Free** tier.",
         "pro_tier_msg": "You are on the **Pro** tier.",
         "premium_tier_msg": "You are on the **Premium** tier (Unlimited)! 🌟",
-        "btn_pro": "🚀 Generate Pro Checkout",
-        "btn_premium": "🌟 Generate Premium Checkout",
-        "btn_premium_upgrade": "🌟 Generate Premium Checkout (Upgrade)",
-        "btn_complete_pro": "💳 Complete Pro Payment on Stripe",
-        "btn_complete_premium": "💳 Complete Premium Payment on Stripe",
+        "btn_pro": "🚀 Complete Pro Checkout",
+        "btn_premium": "🌟 Complete Premium Checkout",
+        "btn_premium_upgrade": "🌟 Upgrade to Premium",
         "btn_manage_sub": "⚙️ Manage Subscription / Cancel",
-        "btn_open_portal": "👉 Open Stripe Billing Portal",
         "login_prompt": "🔒 **Please log in or sign up using the sidebar to access the Dog Behavior Analyzer.**",
         "login_info": "Once logged in, you'll be able to upload videos, track your monthly usage, and analyze your dog's micro-body language.",
         "config_header": "Configuration",
@@ -95,13 +92,10 @@ TRANSLATIONS = {
         "free_tier_msg": "Vous utilisez le forfait **Gratuit**.",
         "pro_tier_msg": "Vous utilisez le forfait **Pro**.",
         "premium_tier_msg": "Vous utilisez le forfait **Premium** (Illimité) ! 🌟",
-        "btn_pro": "🚀 Passer au forfait Pro",
-        "btn_premium": "🌟 Passer au forfait Premium",
+        "btn_pro": "🚀 Payer le forfait Pro",
+        "btn_premium": "🌟 Payer le forfait Premium",
         "btn_premium_upgrade": "🌟 Mettre à niveau vers Premium",
-        "btn_complete_pro": "💳 Finaliser le paiement Pro sur Stripe",
-        "btn_complete_premium": "💳 Finaliser le paiement Premium sur Stripe",
         "btn_manage_sub": "⚙️ Gérer l'abonnement / Annuler",
-        "btn_open_portal": "👉 Ouvrir le portail Stripe",
         "login_prompt": "🔒 **Veuillez vous connecter ou vous inscrire dans la barre latérale pour accéder à l'application.**",
         "login_info": "Une fois connecté, vous pourrez télécharger des vidéos, suivre votre consommation mensuelle et analyser le langage corporel de votre chien.",
         "config_header": "Configuration",
@@ -139,13 +133,10 @@ TRANSLATIONS = {
         "free_tier_msg": "Estás en el plan **Gratuito**.",
         "pro_tier_msg": "Estás en el plan **Pro**.",
         "premium_tier_msg": "¡Estás en el plan **Premium** (Ilimitado)! 🌟",
-        "btn_pro": "🚀 Generar Pago Pro",
-        "btn_premium": "🌟 Generar Pago Premium",
+        "btn_pro": "🚀 Pagar Plan Pro",
+        "btn_premium": "🌟 Pagar Plan Premium",
         "btn_premium_upgrade": "🌟 Actualizar a Premium",
-        "btn_complete_pro": "💳 Completar Pago Pro en Stripe",
-        "btn_complete_premium": "💳 Completar Pago Premium en Stripe",
         "btn_manage_sub": "⚙️ Gestionar Suscripción / Cancelar",
-        "btn_open_portal": "👉 Abrir Portal de Facturación de Stripe",
         "login_prompt": "🔒 **Por favor, inicia sesión o regístrate en la barra lateral para acceder al analizador.**",
         "login_info": "Una vez que inicies sesión, podrás subir videos, ver tu uso mensual y analizar el lenguaje corporal de tu perro.",
         "config_header": "Configuración",
@@ -171,13 +162,10 @@ TRANSLATIONS = {
 
 # --- HELPER FUNCTIONS ---
 def downsample_video(input_path: str, target_fps: int = 10, max_height: int = 720) -> str:
-    """Takes a heavy video file, reduces its resolution and frame rate, 
-    and saves it to a lighter temporary file for lightning-fast Gemini analysis.
-    """
     cap = cv2.VideoCapture(input_path)
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     if original_fps <= 0:
-        original_fps = 30.0  # Fallback default
+        original_fps = 30.0
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -231,7 +219,6 @@ if "session" not in st.session_state:
 if "analysis_report" not in st.session_state:
     st.session_state.analysis_report = None
 
-# Restore Supabase auth session across reruns so RLS updates succeed
 if st.session_state.session:
     try:
         supabase.auth.set_session(
@@ -325,58 +312,45 @@ with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
         if user_tier == "Free":
             st.write(t["free_tier_msg"])
             
-            if st.button(t["btn_pro"]):
-                try:
-                    checkout_session = stripe.checkout.Session.create(
-                        line_items=[{
-                            "price": st.secrets["STRIPE_PRO_PRICE_ID"],
-                            "quantity": 1,
-                        }],
-                        mode="subscription",
-                        success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
-                        cancel_url=f"{BASE_URL}/?canceled=true",
-                        client_reference_id=st.session_state.user.id,
-                    )
-                    st.success("Checkout link ready!")
-                    st.link_button(t["btn_complete_pro"], checkout_session.url)
-                except Exception as e:
-                    st.error(f"Checkout error: {e}")
+            # Create Pro Checkout URL directly
+            try:
+                pro_session = stripe.checkout.Session.create(
+                    line_items=[{"price": st.secrets["STRIPE_PRO_PRICE_ID"], "quantity": 1}],
+                    mode="subscription",
+                    success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{BASE_URL}/?canceled=true",
+                    client_reference_id=st.session_state.user.id,
+                )
+                st.markdown(f"[🚀 **{t['btn_pro']}**]({pro_session.url})", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Stripe Pro Error: {e}")
 
-            if st.button(t["btn_premium"]):
-                try:
-                    checkout_session = stripe.checkout.Session.create(
-                        line_items=[{
-                            "price": st.secrets["STRIPE_PREMIUM_PRICE_ID"],
-                            "quantity": 1,
-                        }],
-                        mode="subscription",
-                        success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
-                        cancel_url=f"{BASE_URL}/?canceled=true",
-                        client_reference_id=st.session_state.user.id,
-                    )
-                    st.success("Checkout link ready!")
-                    st.link_button(t["btn_complete_premium"], checkout_session.url)
-                except Exception as e:
-                    st.error(f"Checkout error: {e}")
+            # Create Premium Checkout URL directly
+            try:
+                prem_session = stripe.checkout.Session.create(
+                    line_items=[{"price": st.secrets["STRIPE_PREMIUM_PRICE_ID"], "quantity": 1}],
+                    mode="subscription",
+                    success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{BASE_URL}/?canceled=true",
+                    client_reference_id=st.session_state.user.id,
+                )
+                st.markdown(f"[🌟 **{t['btn_premium']}**]({prem_session.url})", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Stripe Premium Error: {e}")
 
         elif user_tier == "Pro":
             st.write(t["pro_tier_msg"])
-            if st.button(t["btn_premium_upgrade"]):
-                try:
-                    checkout_session = stripe.checkout.Session.create(
-                        line_items=[{
-                            "price": st.secrets["STRIPE_PREMIUM_PRICE_ID"],
-                            "quantity": 1,
-                        }],
-                        mode="subscription",
-                        success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
-                        cancel_url=f"{BASE_URL}/?canceled=true",
-                        client_reference_id=st.session_state.user.id,
-                    )
-                    st.success("Checkout link ready!")
-                    st.link_button(t["btn_complete_premium"], checkout_session.url)
-                except Exception as e:
-                    st.error(f"Checkout error: {e}")
+            try:
+                prem_session = stripe.checkout.Session.create(
+                    line_items=[{"price": st.secrets["STRIPE_PREMIUM_PRICE_ID"], "quantity": 1}],
+                    mode="subscription",
+                    success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{BASE_URL}/?canceled=true",
+                    client_reference_id=st.session_state.user.id,
+                )
+                st.markdown(f"[🌟 **{t['btn_premium_upgrade']}**]({prem_session.url})", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Stripe Upgrade Error: {e}")
         else:
             st.write(t["premium_tier_msg"])
 
@@ -389,11 +363,11 @@ with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
                             customer=stripe_customer_id,
                             return_url=f"{BASE_URL}/",
                         )
-                        st.link_button(t["btn_open_portal"], portal_session.url)
+                        st.markdown(f"[👉 **Open Stripe Billing Portal**]({portal_session.url})", unsafe_allow_html=True)
                     except Exception as e:
                         st.error(f"Could not open billing portal: {e}")
                 else:
-                    st.warning("No active Stripe customer ID found for this account. Please contact support if you believe this is an error.")
+                    st.warning("No active Stripe customer ID found for this account.")
 
         st.markdown("---")
         if st.button(t["logout"]):
