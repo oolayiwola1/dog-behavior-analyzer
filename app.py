@@ -16,8 +16,11 @@ supabase = init_supabase()
 if "GEMINI_API_KEY" in st.secrets:
     os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
 
+# --- ENSURE STRIPE API KEY IS CONFIGURED ---
 if "STRIPE_SECRET_KEY" in st.secrets:
     stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+else:
+    st.error("⚠️ STRIPE_SECRET_KEY is missing from your Streamlit secrets!")
 
 from analyzer import analyze_dog_behavior
 
@@ -159,7 +162,7 @@ TRANSLATIONS = {
         "analysis_complete": "¡Análisis completado!",
         "analysis_failed": "Error en el análisis",
         "upload_prompt": "Por favor, sube un video para comenzar.",
-        "disclaimer": "⚠️ **Aviso legal:** Esta aplicación utiliza inteligencia artificial solo con fines educativos e informativos. No sustituye el diagnóstico ni la consulta de un veterinario o entrenador canino profesional."
+        "disclaimer": "⚠️ **Aviso legal:** Cette aplicación utiliza inteligencia artificial solo con fines educativos e informativos. No sustituye el diagnóstico ni la consulta de un veterinario o entrenador canino profesional."
     }
 }
 
@@ -289,7 +292,6 @@ if st.session_state.user:
 
 with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
     if st.session_state.user is None:
-        # Wrapped in st.form to allow pressing ENTER to submit credentials
         with st.form("login_form"):
             auth_mode = st.radio(t["mode"], [t["login"], t["signup"]], horizontal=True)
             email = st.text_input(t["email"])
