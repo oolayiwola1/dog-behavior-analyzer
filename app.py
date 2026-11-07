@@ -381,3 +381,130 @@ with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
                     st.warning("No active Stripe customer ID found for this account.")
 
         st.markdown("---")
+        if st.button(t["logout"]):
+            supabase.auth.sign_out()
+            st.session_state.user = None
+            st.session_state.session = None
+            st.session_state.analysis_report = None
+            st.rerun()
+
+# --- ENFORCE LOGIN BEFORE APP ACCESS ---
+if st.session_state.user is None:
+    st.warning(t["login_prompt"])
+    st.info(t["login_info"])
+else:
+    st.sidebar.header(t["config_header"])
+    use_mock_mode = st.sidebar.checkbox(t["mock_mode"], value=False)
+
+    tier_limits = {
+        "Free": 15.0,
+        "Pro": 45.0,
+        "Premium": 120.0
+    }
+    max_duration = tier_limits.get(user_tier, 15.0)
+
+    st.sidebar.info(
+        f"{t['active_tier'].format(tier=user_tier)}\n\n"
+        f"{t['max_length'].format(length=int(max_duration))}\n"
+        f"{t['analyses_used'].format(used=analyses_used)}"
+    )
+
+    st.markdown(t["app_intro"])
+
+    uploaded_file = st.file_uploader(t["uploader_label"], type=["mp4", "mov", "avi"])
+
+    if uploaded_file is not None:
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        if not file_extension:
+            file_extension = ".mp4"
+        raw_filename = f"temp_raw_{uuid.uuid4().hex}{file_extension}"
+        optimized_filename = None
+
+        try:
+            with open(raw_filename, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            with st.spinner("Optimizing video stream for fast AI processing..."):
+                optimized_filename = downsample_video(raw_filename, target_fps=10, max_height=720)
+
+            cap = cv2.VideoCapture(optimized_filename)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = frame_count / fps if fps > 0 else 0
+            cap.release()
+
+            col1, col2 = st.columns([1, 1])
+
+            with col1:
+                st.subheader(t["uploaded_video_header"])
+                st.video(uploaded_file)
+                st.caption(t["detected_length"].format(duration=duration, limit=int(max_duration)))
+
+            with col2:
+                st.subheader(t["report_header"])
+                
+                if duration > max_duration:
+                    st.warning(
+                        t["clip_exceeds"].format(tier=user_tier, duration=duration, limit=int(max_duration))
+                    )
+                else:
+                    analysis_limits = {
+                        "Free": 5,
+                        "Pro": 15,
+                        "Premium": 999999
+                    }
+                    max_analyses = analysis_limits.get(user_tier, 5)
+                    
+                    limit_reached = False
+                    if user_tier != "Premium" and analyses_used >= max_analyses:
+                        limit_reached = True
+
+                    if limit_reached:
+                        st.error(
+                            t["limit_reached"].format(used=analyses_used, tier=user_tier)
+                        )
+                    else:
+                        if st.button(t["btn_analyze"], type="primary"):
+                            with st.status(t["initializing_pipeline"], expanded=True) as status_box:
+                                def update_status_ui(msg):
+                                    status_box.write(f"👉 {msg}")
+
+                                try:
+                                    report = analyze_dog_behavior(
+                                        optimized_filename, 
+                                        use_mock=use_mock_mode, 
+                                        status_callback=update_status_ui,
+                                        language=selected_lang
+                                    )
+                                    status_box.update(label=t["analysis_complete"], state="complete", expanded=False)
+                                    
+                                    fresh_profile = supabase.table("profiles").select("analyses_used").eq("id", st.session_state.user.id).execute()
+                                    current_used = 0
+                                    if fresh_profile.data:
+                                        current_used = fresh_profile.data[0].get("analyses_used", 0)
+
+                                    new_count = current_used + 1
+
+                                    supabase.table("profiles").update({"analyses_used": new_count}).eq("id", st.session_state.user.id).execute()
+                                    
+                                    st.session_state.analysis_report = report
+                                    st.rerun()
+                                        
+                                except Exception as e:
+                                    status_box.update(label=t["analysis_failed"], state="error", expanded=True)
+                                    st.error(f"An error occurred during analysis: {e}")
+
+                if st.session_state.analysis_report:
+                    st.markdown(st.session_state.analysis_report)
+
+        finally:
+            if os.path.exists(raw_filename):
+                os.remove(raw_filename)
+            if optimized_filename and os.path.exists(optimized_filename):
+                os.remove(optimized_filename)
+
+        st.markdown("---")
+        st.caption(t["disclaimer"])
+
+    else:
+        st.info(t["upload_prompt"])
