@@ -18,22 +18,21 @@ if "GEMINI_API_KEY" in st.secrets:
 
 # --- ENVIRONMENT & STRIPE CONFIGURATION ---
 # Check the DEBUG flag (True = Test Mode, False = Live Mode)
-# Defaults to False (live) if not explicitly set
 DEBUG_MODE = st.secrets.get("DEBUG", False)
 current_env = "test" if DEBUG_MODE else "live"
 
-# Automatically pull the correct stripe keys based on the active environment block
-if current_env in st.secrets and "STRIPE_SECRET_KEY" in st.secrets[current_env]:
-    stripe.api_key = st.secrets[current_env]["STRIPE_SECRET_KEY"]
-elif "STRIPE_SECRET_KEY" in st.secrets:
-    # Fallback to top-level key if blocks aren't used
-    stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+# Safely pull the correct stripe keys based on the active environment block
+env_secrets = st.secrets.get(current_env, st.secrets)
+
+stripe_key = env_secrets.get("STRIPE_SECRET_KEY", st.secrets.get("STRIPE_SECRET_KEY"))
+if stripe_key:
+    stripe.api_key = stripe_key
 else:
     st.error("⚠️ STRIPE_SECRET_KEY is missing from your Streamlit secrets!")
 
 # Fetch active price IDs dynamically based on test/live mode
-stripe_pro_price_id = st.secrets[current_env].get("STRIPE_PRO_PRICE_ID") if current_env in st.secrets else st.secrets.get("STRIPE_PRO_PRICE_ID")
-stripe_premium_price_id = st.secrets[current_env].get("STRIPE_PREMIUM_PRICE_ID") if current_env in st.secrets else st.secrets.get("STRIPE_PREMIUM_PRICE_ID")
+stripe_pro_price_id = env_secrets.get("STRIPE_PRO_PRICE_ID", st.secrets.get("STRIPE_PRO_PRICE_ID"))
+stripe_premium_price_id = env_secrets.get("STRIPE_PREMIUM_PRICE_ID", st.secrets.get("STRIPE_PREMIUM_PRICE_ID"))
 
 # Automatically switch between localhost and your live cloud URL via secrets.toml
 BASE_URL = st.secrets.get("REDIRECT_URL", "http://localhost:8501")
@@ -178,4 +177,207 @@ def downsample_video(input_path: str, target_fps: int = 10, max_height: int = 72
     cap = cv2.VideoCapture(input_path)
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     if original_fps <= 0:
-        original_fps = 30.
+        original_fps = 30.0
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    if height > max_height:
+        scale = max_height / height
+        new_height = max_height
+        new_width = int(width * scale)
+    else:
+        new_height = height
+        new_width = width
+
+    skip_ratio = max(1, int(round(original_fps / target_fps)))
+
+    output_tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    output_path = output_tfile.name
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, target_fps, (new_width, new_height))
+
+    frame_idx = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        if frame_idx % skip_ratio == 0:
+            if new_height != height or new_width != width:
+                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            out.write(frame)
+        
+        frame_idx += 1
+
+    cap.release()
+    out.release()
+    return output_path
+
+# --- LANGUAGE SELECTOR ---
+selected_lang = st.sidebar.selectbox("🌐 Language / Langue / Idioma", ["English", "Français", "Español"])
+t = TRANSLATIONS[selected_lang]
+
+st.title(t["title"])
+st.sidebar.caption(f"🔧 Environment: **{current_env.upper()}**")
+
+# --- SESSION & AUTH STATE RESTORATION ---
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "session" not in st.session_state:
+    st.session_state.session = None
+
+if "analysis_report" not in st.session_state:
+    st.session_state.analysis_report = None
+
+if st.session_state.session:
+    try:
+        supabase.auth.set_session(
+            st.session_state.session.access_token, 
+            st.session_state.session.refresh_token
+        )
+    except Exception:
+        pass
+
+# --- HANDLE STRIPE REDIRECT SUCCESS / CANCELLATION ---
+query_params = st.query_params
+if "success" in query_params:
+    st.success("🎉 Payment successful! Verifying your subscription...")
+    if st.session_state.user:
+        try:
+            session_id = query_params.get("session_id")
+            new_tier = "Pro"
+            customer_id = None
+
+            if session_id:
+                checkout_session = stripe.checkout.Session.retrieve(session_id)
+                customer_id = checkout_session.customer
+                
+                line_items = stripe.checkout.Session.list_line_items(session_id)
+                if line_items.data:
+                    price_id = line_items.data[0].price.id
+                    if price_id == stripe_premium_price_id:
+                        new_tier = "Premium"
+
+            update_data = {"tier": new_tier}
+            if customer_id:
+                update_data["stripe_customer_id"] = customer_id
+
+            supabase.table("profiles").update(update_data).eq("id", st.session_state.user.id).execute()
+            st.success(f"✨ Account successfully upgraded to **{new_tier}**!")
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not automatically sync tier: {e}")
+elif "canceled" in query_params:
+    st.info("Checkout canceled. Feel free to try again whenever you're ready!")
+    st.query_params.clear()
+
+# --- SIDEBAR: AUTHENTICATION & CONFIGURATION ---
+st.sidebar.header(t["account_header"])
+
+user_tier = "Free"
+analyses_used = 0
+stripe_customer_id = None
+
+if st.session_state.user:
+    try:
+        profile_res = supabase.table("profiles").select("tier, analyses_used, stripe_customer_id").eq("id", st.session_state.user.id).execute()
+        if profile_res.data:
+            user_tier = profile_res.data[0].get("tier", "Free")
+            analyses_used = profile_res.data[0].get("analyses_used", 0)
+            stripe_customer_id = profile_res.data[0].get("stripe_customer_id")
+    except Exception as e:
+        st.sidebar.error(f"Could not fetch profile: {e}")
+        user_tier = "Free"
+
+with st.sidebar.expander(t["auth_title"], expanded=not st.session_state.user):
+    if st.session_state.user is None:
+        with st.form("login_form"):
+            auth_mode = st.radio(t["mode"], [t["login"], t["signup"]], horizontal=True)
+            email = st.text_input(t["email"])
+            password = st.text_input(t["password"], type="password")
+            stay_logged_in = st.checkbox(t["stay_logged_in"], value=True)
+            
+            submit_btn = st.form_submit_button(t["submit"])
+
+        if submit_btn:
+            try:
+                if auth_mode == t["signup"]:
+                    res = supabase.auth.sign_up({"email": email, "password": password})
+                    st.success("Check your email for confirmation, or log in if confirmation is disabled!")
+                else:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state.user = res.user
+                    st.session_state.session = res.session
+                    st.success("Logged in successfully!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Authentication error: {e}")
+    else:
+        st.write(f"Logged in as: **{st.session_state.user.email}**")
+        
+        st.markdown("---")
+        st.subheader(t["plans_header"])
+        
+        if user_tier == "Free":
+            st.write(t["free_tier_msg"])
+            
+            try:
+                pro_session = stripe.checkout.Session.create(
+                    line_items=[{"price": stripe_pro_price_id, "quantity": 1}],
+                    mode="subscription",
+                    success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{BASE_URL}/?canceled=true",
+                    client_reference_id=st.session_state.user.id,
+                )
+                st.markdown(f"[🚀 **{t['btn_pro']}**]({pro_session.url})", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Stripe Pro Error: {e}")
+
+            try:
+                prem_session = stripe.checkout.Session.create(
+                    line_items=[{"price": stripe_premium_price_id, "quantity": 1}],
+                    mode="subscription",
+                    success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{BASE_URL}/?canceled=true",
+                    client_reference_id=st.session_state.user.id,
+                )
+                st.markdown(f"[🌟 **{t['btn_premium']}**]({prem_session.url})", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Stripe Premium Error: {e}")
+
+        elif user_tier == "Pro":
+            st.write(t["pro_tier_msg"])
+            try:
+                prem_session = stripe.checkout.Session.create(
+                    line_items=[{"price": stripe_premium_price_id, "quantity": 1}],
+                    mode="subscription",
+                    success_url=f"{BASE_URL}/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{BASE_URL}/?canceled=true",
+                    client_reference_id=st.session_state.user.id,
+                )
+                st.markdown(f"[🌟 **{t['btn_premium_upgrade']}**]({prem_session.url})", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Stripe Upgrade Error: {e}")
+        else:
+            st.write(t["premium_tier_msg"])
+
+        if user_tier in ["Pro", "Premium"]:
+            st.markdown("---")
+            if st.button(t["btn_manage_sub"]):
+                if stripe_customer_id:
+                    try:
+                        portal_session = stripe.billing_portal.Session.create(
+                            customer=stripe_customer_id,
+                            return_url=f"{BASE_URL}/",
+                        )
+                        st.markdown(f"[👉 **Open Stripe Billing Portal**]({portal_session.url})", unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"Could not open billing portal: {e}")
+                else:
+                    st.warning("No active Stripe customer ID found for this account.")
+
+        st.markdown("---")
